@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Mnesis Tablet Test</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#05070d;color:#eef4ff;font:16px/1.45 Roboto,"Segoe UI",sans-serif}
+header{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;-webkit-justify-content:space-between;justify-content:space-between;padding:12px 24px}
+h1{margin:0;font-size:20px;letter-spacing:6px;color:#c6d4ff}
+h2{margin:0 0 8px;font-size:13px;letter-spacing:2px;color:#5de8ff}
+main{display:-webkit-flex;display:flex;-webkit-flex-wrap:wrap;flex-wrap:wrap;padding:0 12px}
+section{-webkit-flex:1 1 320px;flex:1 1 320px;padding:8px 12px;min-width:0}
+button{min-height:48px;padding:0 16px 0 0;margin-right:12px;border:0;background:transparent;color:#5de8ff;font:600 17px Roboto,"Segoe UI",sans-serif;text-shadow:0 0 14px #5de8ff;cursor:pointer}
+button:disabled{color:#7c8aa8;text-shadow:none;cursor:default}
+#motion{color:#9fb0cc;text-shadow:none;font-weight:400;margin:0}
+ul{list-style:none;margin:0;padding:0}
+li{padding:3px 0}
+.ok{color:#7dffb2}.mid{color:#ffc15e}.bad{color:#ff8a9a}.dim{color:#9fb0cc;font-size:14px}
+#meter{height:14px;border-bottom:1px solid #26385c;margin:10px 0}
+#level{height:12px;width:0;background:linear-gradient(90deg,#5de8ff,#9b87ff,#ff7ad9)}
+audio{width:100%;margin-top:8px}
+#scene{position:relative;height:300px;overflow:hidden}
+#scene svg{position:absolute;left:0;top:0;width:100%;height:100%}
+.orb{position:absolute;left:0;top:0;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%}
+#core{position:absolute;left:50%;top:50%;width:96px;height:96px;margin:-48px 0 0 -48px;border-radius:50%;border:2px solid #6f7fd0;box-shadow:0 0 40px #6f7fd0;background:#0a1026}
+.big{font-size:22px;min-height:32px}
+footer{padding:8px 24px 24px;border-top:1px solid #1b2947;margin-top:8px}
+#code{font:15px/1.5 "Roboto Mono",Consolas,monospace;color:#c3d0e8;word-break:break-word}
+</style>
+</head>
+<body>
+<header><h1>MNESIS TABLET TEST</h1><button id="motion" type="button" aria-pressed="true">Motion: on</button></header>
+<main>
+<section>
+  <h2>1 · BROWSER</h2>
+  <ul id="checks"><li class="bad">This page needs JavaScript.</li></ul>
+  <p class="dim" id="browser"></p>
+</section>
+<section>
+  <h2>2 · MICROPHONE</h2>
+  <button id="mic" type="button">Start mic test</button>
+  <div class="big" id="micstep" aria-live="polite">Quiet room, normal distance.</div>
+  <div id="meter" aria-hidden="true"><div id="level"></div></div>
+  <div id="micres" aria-live="polite"></div>
+  <audio id="play" controls hidden></audio>
+  <p><button id="speech" type="button">Speech check (optional)</button></p>
+  <div id="heard" aria-live="polite"></div>
+  <p class="dim">The recording stays on this tablet. The optional speech check uses the browser's speech service, which may send your voice to Google.</p>
+</section>
+<section>
+  <h2>3 · SPEED</h2>
+  <button id="speed" type="button">Start speed test (10 s)</button>
+  <div class="big" id="speedres" aria-live="polite"></div>
+  <div id="scene" aria-hidden="true"><svg></svg><div id="core"></div></div>
+</section>
+</main>
+<footer>
+  <h2>VERDICT</h2>
+  <div class="big" id="verdict" aria-live="polite">Run the mic and speed tests.</div>
+  <div id="code"></div>
+</footer>
+<script>
+(function(){
+"use strict";
+function $(id){return document.getElementById(id)}
+var R={mic:null,fps:null,heard:null};
+var AC=window.AudioContext||window.webkitAudioContext;
+var md=navigator.mediaDevices;
+var oldGUM=navigator.getUserMedia||navigator.webkitGetUserMedia;
+var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+var ua=navigator.userAgent;
+var m=ua.match(/SamsungBrowser\/(\d+)/),name="Samsung Internet";
+if(!m){m=ua.match(/(?:Chrome|CriOS)\/(\d+)/);name="Chrome"}
+if(!m){m=ua.match(/Firefox\/(\d+)/);name="Firefox"}
+var browser=m?name+" "+m[1]:"Unknown browser";
+var android=(ua.match(/Android ([\d.]+)/)||[])[1];
+$("browser").textContent=browser+(android?" on Android "+android:"")+" · screen "+window.innerWidth+" x "+window.innerHeight;
+
+/* 1. features: [label, present, needed for the voice hub] */
+var secure=window.isSecureContext!==undefined?window.isSecureContext:location.protocol==="https:";
+var F=[
+ ["Secure connection",secure,true],
+ ["Microphone access",!!((md&&md.getUserMedia)||oldGUM),true],
+ ["Audio engine",!!AC,true],
+ ["Live voice processing",!!window.AudioWorkletNode,true],
+ ["Live connection",!!window.WebSocket,true],
+ ["Voice calls (WebRTC)",!!(window.RTCPeerConnection||window.webkitRTCPeerConnection),false],
+ ["Recording",!!window.MediaRecorder,false],
+ ["Install as an app",("serviceWorker" in navigator),false]
+];
+var html="",have=0,missing=[];
+F.forEach(function(f){
+  if(f[1])have++;else if(f[2])missing.push(f[0]);
+  html+='<li class="'+(f[1]?"ok":f[2]?"bad":"mid")+'">'+(f[1]?"✓ ":"✗ ")+f[0]+"</li>";
+});
+$("checks").innerHTML=html;
+
+function verdict(){
+  var bits=[browser,"Features "+have+"/"+F.length];
+  if(R.fps!==null)bits.push("Speed "+R.fps+" fps");
+  if(R.mic!==null)bits.push("Mic "+R.mic+" dB");
+  if(R.heard!==null)bits.push('Heard "'+R.heard+'"');
+  $("code").textContent=bits.join(" · ");
+  var v=$("verdict");
+  if(missing.length){v.className="big bad";v.textContent="Fail on this browser. Missing: "+missing.join(", ")+".";return}
+  if(R.mic===null||R.fps===null){v.className="big";v.textContent="Browser basics pass. Run the mic and speed tests.";return}
+  if(R.mic<10||R.fps<28){v.className="big bad";v.textContent="Struggling. "+(R.fps<28?"The map is choppy. ":"")+(R.mic<10?"Your voice barely rises above the room.":"")}
+  else if(R.mic<20||R.fps<45){v.className="big mid";v.textContent="Borderline but usable. Worth a real voice trial."}
+  else{v.className="big ok";v.textContent="Pass. Worth a real voice trial on the current software."}
+}
+
+/* 2. microphone */
+function getMic(){
+  if(md&&md.getUserMedia)return md.getUserMedia({audio:true});
+  return new Promise(function(ok,no){
+    if(!oldGUM)return no(new Error("not supported"));
+    oldGUM.call(navigator,{audio:true},ok,no);
+  });
+}
+$("mic").onclick=function(){
+  var btn=this;
+  if(!AC||!window.Promise){$("micstep").textContent="This browser cannot run the mic test.";return}
+  btn.disabled=true;$("speech").disabled=true;$("micres").textContent="";$("play").hidden=true;
+  $("micstep").textContent="Tap Allow if asked.";
+  var ctx=new AC();if(ctx.resume)ctx.resume();
+  getMic().then(function(stream){
+    var an=ctx.createAnalyser();an.fftSize=2048;
+    var src=ctx.createMediaStreamSource(stream);src.connect(an);
+    var isF=!!an.getFloatTimeDomainData;
+    var buf=isF?new Float32Array(an.fftSize):new Uint8Array(an.fftSize);
+    var quiet=[],talk=[],t0=Date.now(),rec=null,chunks=[];
+    var timer=setInterval(function(){
+      var t=(Date.now()-t0)/1000,sum=0,i,v;
+      if(isF)an.getFloatTimeDomainData(buf);else an.getByteTimeDomainData(buf);
+      for(i=0;i<buf.length;i++){v=isF?buf[i]:(buf[i]-128)/128;sum+=v*v}
+      var db=20*Math.log(Math.sqrt(sum/buf.length)+0.00001)/Math.LN10;
+      $("level").style.width=Math.max(0,Math.min(100,(db+70)*1.6))+"%";
+      if(t<3){if(t>0.7)quiet.push(db);$("micstep").textContent="Stay quiet... "+Math.ceil(3-t)}
+      else if(t<9){
+        if(!rec&&window.MediaRecorder){
+          rec=new MediaRecorder(stream);
+          rec.ondataavailable=function(e){if(e.data.size)chunks.push(e.data)};
+          rec.onstop=function(){
+            var a=$("play");a.src=URL.createObjectURL(new Blob(chunks,{type:rec.mimeType||"audio/webm"}));a.hidden=false;
+          };
+          rec.start();
+        }
+        talk.push(db);$("micstep").textContent="Talk now: \"What is on my calendar today?\" "+Math.ceil(9-t);
+      }else{
+        clearInterval(timer);
+        if(rec&&rec.state!=="inactive")rec.stop();
+        stream.getTracks().forEach(function(x){x.stop()});
+        if(ctx.close)ctx.close();
+        $("level").style.width="0";btn.disabled=false;$("speech").disabled=false;
+        function pick(a,p){a.sort(function(x,y){return x-y});return a[Math.floor((a.length-1)*p)]}
+        if(!quiet.length||!talk.length){$("micstep").textContent="Test interrupted. Try again.";return}
+        var speech=pick(talk,0.9),gap=Math.max(0,Math.round(speech-pick(quiet,0.5)));
+        R.mic=gap;
+        var r=$("micres");
+        r.className=gap>=20?"ok":gap>=10?"mid":"bad";
+        r.textContent=(gap>=20?"Good":gap>=10?"Fair":"Weak")+": your voice was "+gap+" dB above the room."+(speech<-45?" It also came through very quietly.":"");
+        $("micstep").textContent="Done. Play it back below.";
+        verdict();
+      }
+    },50);
+  }).catch(function(e){
+    if(ctx.close)ctx.close();
+    btn.disabled=false;$("speech").disabled=false;
+    $("micstep").textContent="Mic did not start.";
+    $("micres").className="bad";$("micres").textContent=(e&&(e.name||e.message))||"Unknown error";
+  });
+};
+$("speech").onclick=function(){
+  var btn=this,out=$("heard");
+  if(!SR){out.className="mid";out.textContent="This browser has no built-in speech check.";return}
+  var s=new SR(),got=false;
+  s.lang="en-CA";s.interimResults=false;s.maxAlternatives=1;
+  btn.disabled=true;$("mic").disabled=true;out.className="";out.textContent="Listening. Say: \"What is on my calendar today?\"";
+  s.onresult=function(e){got=true;R.heard=e.results[0][0].transcript;out.className="ok";out.textContent="Heard: \""+R.heard+"\"";verdict()};
+  s.onerror=function(e){got=true;out.className="mid";out.textContent="Speech check did not work ("+e.error+")."};
+  var guard=setTimeout(function(){if(s.abort)s.abort();done()},12000);
+  function done(){clearTimeout(guard);btn.disabled=false;$("mic").disabled=false;if(!got){out.className="mid";out.textContent="Nothing was heard. Try again."}}
+  s.onend=done;
+  s.start();
+};
+
+/* 3. speed: 40 orbiting notes with glow and links, like the real map */
+var scene=$("scene"),svg=scene.getElementsByTagName("svg")[0],nodes=[],COL=["#5de8ff","#ffc15e","#9b87ff","#ff7ad9","#7dffb2"];
+for(var i=0;i<40;i++){
+  var line=document.createElementNS("http://www.w3.org/2000/svg","line");
+  line.setAttribute("stroke",COL[i%5]);line.setAttribute("stroke-opacity",".35");svg.appendChild(line);
+  var o=document.createElement("div");o.className="orb";o.style.background=COL[i%5];o.style.boxShadow="0 0 14px "+COL[i%5];scene.appendChild(o);
+  nodes.push({el:o,line:line,a:i*2.4,r:0.32+0.65*((i*17)%40)/40});
+}
+var angle=0;
+function draw(){
+  var w=scene.clientWidth/2,h=scene.clientHeight/2;
+  nodes.forEach(function(n){
+    var x=w+Math.cos(n.a+angle)*n.r*(w-16),y=h+Math.sin(n.a+angle)*n.r*(h-16);
+    n.el.style.webkitTransform=n.el.style.transform="translate("+x+"px,"+y+"px)";
+    n.line.setAttribute("x1",w);n.line.setAttribute("y1",h);n.line.setAttribute("x2",x);n.line.setAttribute("y2",y);
+  });
+}
+draw();window.onresize=draw;
+var motion=!(window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches),running=0;
+function label(){$("motion").textContent="Motion: "+(motion?"on":"off");$("motion").setAttribute("aria-pressed",motion)}
+label();
+function stop(msg){cancelAnimationFrame(running);running=0;$("speed").disabled=false;if(msg)$("speedres").textContent=msg}
+$("motion").onclick=function(){motion=!motion;label();if(!motion&&running){$("speedres").className="big";stop("Stopped.")}};
+$("speed").onclick=function(){
+  motion=true;label();this.disabled=true;
+  var start=null,last=null,frames=0,slow=0;
+  $("speedres").className="big";$("speedres").textContent="Testing. Keep this screen open.";
+  function tick(t){
+    if(start===null){start=last=t}
+    else{frames++;if(t-last>50)slow++;angle+=(t-last)*0.00025;last=t}
+    draw();
+    if(t-start<10000){running=requestAnimationFrame(tick);return}
+    stop();
+    R.fps=Math.round(frames*1000/(t-start));
+    var p=$("speedres");
+    p.className="big "+(R.fps>=45?"ok":R.fps>=28?"mid":"bad");
+    p.textContent=(R.fps>=45?"Smooth":R.fps>=28?"Usable":"Choppy")+": "+R.fps+" frames a second, "+slow+" stutters.";
+    verdict();
+  }
+  running=requestAnimationFrame(tick);
+};
+document.addEventListener("visibilitychange",function(){if(document.hidden&&running)stop("Interrupted. Run it again.")});
+verdict();
+})();
+</script>
+</body>
+</html>
